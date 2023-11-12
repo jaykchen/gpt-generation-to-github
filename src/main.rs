@@ -1,109 +1,136 @@
-use dotenv::dotenv;
-// use openai_flows::{
-//     chat::{ChatOptions,ChatModel, ResponseFormat, ResponseFormatType},
-//      OpenAIFlows,
+// use async_openai::types::assistants::thread::{
+//     , CreateThreadRequestArgs,
 // };
 
-// // use github_flows::{get_octo, octocrab::Octocrab, GithubLogin};
-// use slack_flows::{listen_to_channel, send_message_to_channel, SlackMessage};
-use std::{env, fmt::format};
-use async_openai::{Chat};
-
-#[no_mangle]
+use async_openai::{
+    types::{ChatCompletionFunctionsArgs,ChatCompletionRequestFunctionMessageArgs,
+        ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestSystemMessageArgs,
+        ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs, FinishReason, Role,
+    },
+    Client,
+};
+use chrono::prelude::*;
+use serde_json::json;
+use std::collections::HashMap;
 #[tokio::main]
-pub async fn run() {
-    dotenv().ok();
-    let workspace: String = match env::var("slack_workspace") {
-        Err(_) => "secondstate".to_string(),
-        Ok(name) => name,
-    };
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::new();
+    let mut messages = vec![
+        ChatCompletionRequestSystemMessageArgs::default()
+            .content("Perform function requests for the user")
+            .build()?
+            .into(),
+        ChatCompletionRequestUserMessageArgs::default()
+            .content("Hello, I am a user, I would like to know the time of day now")
+            .build()?
+            .into(),
+    ];
+    let functions = vec![
+        ChatCompletionFunctionsArgs::default()
+            .name("helloWorld")
+            .description("Prints hello world with the string passed to it")
+            .parameters(json!({
+                "type": "object",
+                "properties": {
+                    "appendString": {
+                        "type": "string",
+                        "description": "The string to append to the hello world message",
+                    },
+                },
+                "required": ["appendString"],
+            }))
+            .build()?,
+        ChatCompletionFunctionsArgs::default()
+            .name("scraper")
+            .description(
+                "Scraps the book website goodreads for books with the keyword passed to it",
+            )
+            .parameters(json!({
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "The keyword to search for",
+                    },
+                },
+                "required": ["keyword"],
+            }))
+            .build()?,
+        ChatCompletionFunctionsArgs::default()
+            .name("getTimeOfDay")
+            .description("Get the time of day.")
+            .parameters(json!({
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }))
+            .build()?,
+    ];
 
-    let channel: String = match env::var("slack_channel") {
-        Err(_) => "collaborative-chat".to_string(),
-        Ok(name) => name,
-    };
+    let request = CreateChatCompletionRequestArgs::default()
+        .max_tokens(512u16)
+        .model("gpt-3.5-turbo-0613")
+        .messages(messages.clone())
+        .functions(functions)       
+        .function_call("auto")
+        .build()?;
 
-    listen_to_channel(&workspace, &channel, |sm| handler(sm, &workspace, &channel)).await;
-}
+    let chat = client.chat().create(request).await?;
 
-async fn handler(sm: SlackMessage, workspace: &str, channel: &str) {
-    let chat_id = workspace.to_string() + channel;
-    let co = ChatOptions {
-        model: ChatModel::GPT4Turbo,
-        restart: false,
-        system_prompt: None,
-        response_format: Some(ResponseFormat {
-            r#type: ResponseFormatType::JsonObject,
-        }),
-        ..Default::default()
-    };
-    let openai = OpenAIFlows::new();
-    if let Ok(c) = openai.chat_completion(&chat_id, &sm.text, &co).await {
-        send_message_to_channel(&workspace, &channel, c.choice).await;
+    let wants_to_use_function = chat
+        .choices
+        .get(0)
+        .map(|choice| choice.finish_reason == Some(FinishReason::FunctionCall))
+        .unwrap_or(false);
+    if wants_to_use_function {
+        let function_call = chat.choices[0].message.function_call.as_ref().unwrap();
+        let content = match function_call.name.as_str() {
+            "helloWorld" => {
+                let argument_obj = serde_json::from_str::<HashMap<String, String>>(
+                    &function_call.arguments,
+                )?;
+                hello_world(argument_obj["appendString"].clone())
+            }
+            "scraper" => {
+                let argument_obj = serde_json::from_str::<HashMap<String, String>>(
+                    &function_call.arguments,
+                )?;
+                scraper(argument_obj["keyword"].clone()).await?
+            }
+            "getTimeOfDay" => get_time_of_day(),
+            _ => "".to_string(),
+        };
+        messages.push(
+            ChatCompletionRequestFunctionMessageArgs::default()
+                .role(Role::Function)
+                .name(function_call.name.clone())
+                .content(content)
+                .build()?
+                .into(),
+        );
     }
+    let step4response = client
+        .chat().create(
+            CreateChatCompletionRequestArgs::default()
+                .model("gpt-3.5-turbo-0613")
+                .messages(messages)
+                .build()?,
+        )
+        .await?;
+    println!("{:?}", step4response.choices.get(0));
+    Ok(())
 }
 
-/* {
-   "model": "gpt-3.5-turbo",
-   "messages": [
-     {
-       "role": "user",
-       "content": "Generate content for a README file for my new project."
-     }
-   ],
-   "functions": [
-     {
-       "name": "upload_readme",
-       "description": "Uploads a README file to a given GitHub repository",
-       "parameters": {
-         "type": "object",
-         "properties": {
-           "owner": {
-             "type": "string",
-             "description": "The owner of the repository"
-           },
-           "repo": {
-             "type": "string",
-             "description": "The name of the repository"
-           },
-           "file_name": {
-             "type": "string",
-             "description": "The name of the file"
-           },
-           "file_content": {
-             "type": "string",
-             "description": "The content of the file"
-           }
-         },
-         "required": ["owner", "repo", "file_name", "file_content"]
-       }
-     }
-   ],
-   "function_call": "auto"
- }
-*/
-pub async fn upload_readme(owner: &str, repo: &str, file_name: &str, file_content: &str) {
-    // let owner = "jaykchen";
-    // let repo = "a-test";
-    // let file_name = "README.md";
-    // let octocrab = get_octo(&GithubLogin::Default);
+fn hello_world(append_string: String) -> String {
+    format!("Hello, world! {}", append_string)
+}
 
-    // let path = format!("{repo}/{file_name}");
-    // let message = "gpt generated stuff";
-    // let content = "blahblahblah".as_bytes().to_vec();
+async fn scraper(keyword: String) -> Result<String, Box<dyn std::error::Error>> {
+    // Implement the scraper function here.
+    Ok(format!("Scraped books with keyword: {}", keyword))
+}
 
-    // octocrab
-    //     .repos(owner, repo)
-    //     .create_file(path, message, content)
-    //     .branch("master")
-    //     .commiter(GitUser {
-    //         name: "jaykchen".to_string(),
-    //         email: "jaykchen@gmail.com".to_string(),
-    //     })
-    //     .author(GitUser {
-    //         name: "jaykchen".to_string(),
-    //         email: "jaykchen@gmail.com".to_string(),
-    //     })
-    //     .send()
-    //     .await?;
+fn get_time_of_day() -> String {
+    let now = Local::now();
+    now.to_rfc3339()
 }
