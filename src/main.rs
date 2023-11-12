@@ -1,10 +1,7 @@
-// use async_openai::types::assistants::thread::{
-//     , CreateThreadRequestArgs,
-// };
-
 use async_openai::{
-    types::{ChatCompletionFunctionsArgs,ChatCompletionRequestFunctionMessageArgs,
-        ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestSystemMessageArgs,
+    types::{
+        ChatCompletionFunctionsArgs, ChatCompletionRequestAssistantMessageArgs,
+        ChatCompletionRequestFunctionMessageArgs, ChatCompletionRequestSystemMessageArgs,
         ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs, FinishReason, Role,
     },
     Client,
@@ -12,6 +9,8 @@ use async_openai::{
 use chrono::prelude::*;
 use serde_json::json;
 use std::collections::HashMap;
+
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
@@ -71,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_tokens(512u16)
         .model("gpt-3.5-turbo-0613")
         .messages(messages.clone())
-        .functions(functions)       
+        .functions(functions)
         .function_call("auto")
         .build()?;
 
@@ -86,15 +85,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let function_call = chat.choices[0].message.function_call.as_ref().unwrap();
         let content = match function_call.name.as_str() {
             "helloWorld" => {
-                let argument_obj = serde_json::from_str::<HashMap<String, String>>(
-                    &function_call.arguments,
-                )?;
+                let argument_obj =
+                    serde_json::from_str::<HashMap<String, String>>(&function_call.arguments)?;
                 hello_world(argument_obj["appendString"].clone())
             }
             "scraper" => {
-                let argument_obj = serde_json::from_str::<HashMap<String, String>>(
-                    &function_call.arguments,
-                )?;
+                let argument_obj =
+                    serde_json::from_str::<HashMap<String, String>>(&function_call.arguments)?;
                 scraper(argument_obj["keyword"].clone()).await?
             }
             "getTimeOfDay" => get_time_of_day(),
@@ -110,7 +107,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let step4response = client
-        .chat().create(
+        .chat()
+        .create(
             CreateChatCompletionRequestArgs::default()
                 .model("gpt-3.5-turbo-0613")
                 .messages(messages)
@@ -126,7 +124,6 @@ fn hello_world(append_string: String) -> String {
 }
 
 async fn scraper(keyword: String) -> Result<String, Box<dyn std::error::Error>> {
-    // Implement the scraper function here.
     Ok(format!("Scraped books with keyword: {}", keyword))
 }
 
