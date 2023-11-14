@@ -20,7 +20,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build()?
             .into(),
         ChatCompletionRequestUserMessageArgs::default()
-            .content("Hello, I am a user, I would like to know the time of day now")
+            // .content("Hello, I am a user, I would like to scrape the internet for information about the Old Man and the Sea")
+            .content("Hello, I am a user, I would like to greet John")
+            // .content("Hello, I am a user, I would like to know the time of day now")
             .build()?
             .into(),
     ];
@@ -88,7 +90,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tools(tools)
         .build()?;
 
-    let chat = client.chat().create(request).await?;
+    // let chat = client.chat().create(request).await?;
+    let chat = match client.chat().create(request).await {
+        Ok(chat) => chat,
+        Err(e) => {
+            eprint!("{e}");
+            return Ok(());
+        }
+    };
 
     let check  = chat
     .choices
@@ -98,7 +107,7 @@ dbg!(check);
     let wants_to_use_function = chat
         .choices
         .get(0)
-        .map(|choice| choice.finish_reason == Some(FinishReason::FunctionCall))
+        .map(|choice| choice.finish_reason == Some(FinishReason::ToolCalls))
         .unwrap_or(false);
 
     if wants_to_use_function {
@@ -107,7 +116,7 @@ dbg!(check);
         for tool_call in tool_calls {
             let function = &tool_call.function;
             let content_str = function.name.clone();
-
+println!("function-name: {}", content_str);
             let content = match function.name.as_str() {
                 "helloWorld" => {
                     let argument_obj =
