@@ -538,10 +538,13 @@ dependencies = [
  "async-openai-wasi",
  "chrono",
  "dotenv",
+ "http_req_wasi 0.11.1",
  "hyper",
+ "serde",
  "serde_json",
  "slack-flows",
  "tokio_wasi",
+ "web-scraper-flows",
 ]
 
 [[package]]
@@ -629,6 +632,17 @@ checksum = "3556b0e995620949f801b847c8706fd8ae1c15f42eeaa9c0da3111b2eb0c6f1b"
 dependencies = [
  "unicase",
  "wasmedge_wasi_socket 0.4.3",
+]
+
+[[package]]
+name = "http_req_wasi"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0e44dd0fb00b10cb00ced3fdf15dde68a52faeaf5001138fc0ba3a04a5e1abd"
+dependencies = [
+ "unicase",
+ "wasmedge_rustls_api",
+ "wasmedge_wasi_socket 0.5.1",
 ]
 
 [[package]]
@@ -1157,7 +1171,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c8896f5e5e1eaa88e71573c71e8275824460abf32ee60504ee84bfdfafacc5c"
 dependencies = [
  "flowsnet-platform-sdk",
- "http_req_wasi",
+ "http_req_wasi 0.10.2",
  "lazy_static",
  "rand",
  "serde",
@@ -1652,6 +1666,18 @@ dependencies = [
  "dns-parser",
  "libc",
  "rand",
+]
+
+[[package]]
+name = "web-scraper-flows"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d429608c60cc0c7d11e4359caa0206c39ae2b4e7b97c5b7c796b16c257ae9059"
+dependencies = [
+ "http_req_wasi 0.10.2",
+ "lazy_static",
+ "log",
+ "urlencoding",
 ]
 
 [[package]]
