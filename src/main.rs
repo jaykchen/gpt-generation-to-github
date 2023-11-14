@@ -1,15 +1,15 @@
 use async_openai::{
     types::{
-        ChatCompletionFunctionsArgs, ChatCompletionRequestAssistantMessageArgs,
-        ChatCompletionRequestFunctionMessageArgs, ChatCompletionRequestSystemMessageArgs,
-        ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs, FinishReason, Role,
+        ChatCompletionFunctionsArgs, ChatCompletionRequestFunctionMessageArgs,
+        ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
+        ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequestArgs,
+        FinishReason, Role,
     },
     Client,
 };
 use chrono::prelude::*;
 use serde_json::json;
 use std::collections::HashMap;
-
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,45 +24,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build()?
             .into(),
     ];
-    let functions = vec![
-        ChatCompletionFunctionsArgs::default()
-            .name("helloWorld")
-            .description("Prints hello world with the string passed to it")
-            .parameters(json!({
-                "type": "object",
-                "properties": {
-                    "appendString": {
-                        "type": "string",
-                        "description": "The string to append to the hello world message",
-                    },
-                },
-                "required": ["appendString"],
-            }))
-            .build()?,
-        ChatCompletionFunctionsArgs::default()
-            .name("scraper")
-            .description(
-                "Scraps the book website goodreads for books with the keyword passed to it",
+    let tools = vec![
+        ChatCompletionToolArgs::default()
+            .r#type(ChatCompletionToolType::Function)
+            .function(
+                ChatCompletionFunctionsArgs::default()
+                    .name("helloWorld")
+                    .description("Prints hello world with the string passed to it")
+                    .parameters(json!({
+                        "type": "object",
+                        "properties": {
+                            "appendString": {
+                                "type": "string",
+                                "description": "The string to append to the hello world message",
+                            },
+                        },
+                        "required": ["appendString"],
+                    }))
+                    .build()?,
             )
-            .parameters(json!({
-                "type": "object",
-                "properties": {
-                    "keyword": {
-                        "type": "string",
-                        "description": "The keyword to search for",
-                    },
-                },
-                "required": ["keyword"],
-            }))
             .build()?,
-        ChatCompletionFunctionsArgs::default()
-            .name("getTimeOfDay")
-            .description("Get the time of day.")
-            .parameters(json!({
-                "type": "object",
-                "properties": {},
-                "required": [],
-            }))
+        ChatCompletionToolArgs::default()
+            .r#type(ChatCompletionToolType::Function)
+            .function(
+                ChatCompletionFunctionsArgs::default()
+                    .name("scraper")
+                    .description(
+                        "Scraps the book website goodreads for books with the keyword passed to it",
+                    )
+                    .parameters(json!({
+                        "type": "object",
+                        "properties": {
+                            "keyword": {
+                                "type": "string",
+                                "description": "The keyword to search for",
+                            },
+                        },
+                        "required": ["keyword"],
+                    }))
+                    .build()?,
+            )
+            .build()?,
+        ChatCompletionToolArgs::default()
+            .r#type(ChatCompletionToolType::Function)
+            .function(
+                ChatCompletionFunctionsArgs::default()
+                    .name("getTimeOfDay")
+                    .description("Get the time of day.")
+                    .parameters(json!({
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                    }))
+                    .build()?,
+            )
             .build()?,
     ];
 
@@ -70,43 +85,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_tokens(512u16)
         .model("gpt-3.5-turbo-0613")
         .messages(messages.clone())
-        .functions(functions)
-        .function_call("auto")
+        .tools(tools)
         .build()?;
 
     let chat = client.chat().create(request).await?;
+
+    let check  = chat
+    .choices
+    .get(0).clone();
+dbg!(check);
 
     let wants_to_use_function = chat
         .choices
         .get(0)
         .map(|choice| choice.finish_reason == Some(FinishReason::FunctionCall))
         .unwrap_or(false);
+
     if wants_to_use_function {
-        let function_call = chat.choices[0].message.function_call.as_ref().unwrap();
-        let content = match function_call.name.as_str() {
-            "helloWorld" => {
-                let argument_obj =
-                    serde_json::from_str::<HashMap<String, String>>(&function_call.arguments)?;
-                hello_world(argument_obj["appendString"].clone())
-            }
-            "scraper" => {
-                let argument_obj =
-                    serde_json::from_str::<HashMap<String, String>>(&function_call.arguments)?;
-                scraper(argument_obj["keyword"].clone()).await?
-            }
-            "getTimeOfDay" => get_time_of_day(),
-            _ => "".to_string(),
-        };
-        messages.push(
-            ChatCompletionRequestFunctionMessageArgs::default()
-                .role(Role::Function)
-                .name(function_call.name.clone())
-                .content(content)
-                .build()?
-                .into(),
-        );
+        let tool_calls = chat.choices[0].message.tool_calls.as_ref().unwrap();
+
+        for tool_call in tool_calls {
+            let function = &tool_call.function;
+            let content_str = function.name.clone();
+
+            let content = match function.name.as_str() {
+                "helloWorld" => {
+                    let argument_obj =
+                        serde_json::from_str::<HashMap<String, String>>(&function.arguments)?;
+
+                    let appendString = &argument_obj["appendString"];
+
+                    hello_world(argument_obj["appendString"].clone())
+                }
+                "scraper" => {
+                    let argument_obj =
+                        serde_json::from_str::<HashMap<String, String>>(&function.arguments)?;
+
+                    let keyword = &argument_obj["keyword"];
+
+                    scraper(argument_obj["keyword"].to_string()).await.unwrap()
+                }
+                "getTimeOfDay" => get_time_of_day(),
+                _ => "".to_string(),
+            };
+            messages.push(
+                ChatCompletionRequestFunctionMessageArgs::default()
+                    .role(Role::Function)
+                    .name(function.name.clone())
+                    .content(content)
+                    .build()?
+                    .into(),
+            );
+        }
     }
-    let step4response = client
+    let response_after_func_run = client
         .chat()
         .create(
             CreateChatCompletionRequestArgs::default()
@@ -115,7 +147,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .build()?,
         )
         .await?;
-    println!("{:?}", step4response.choices.get(0));
+
+    let res = response_after_func_run
+        .choices
+        .get(0)
+        .unwrap()
+        .message
+        .clone()
+        .content
+        .unwrap_or("no result".to_string());
+    println!("{:?}", res);
     Ok(())
 }
 
