@@ -10,7 +10,6 @@ use chrono::prelude::*;
 use serde_json::json;
 use std::collections::HashMap;
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
@@ -76,6 +75,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let chat = client.chat().create(request).await?;
 
+    let check = chat.choices.get(0).clone();
+
+    dbg!(check);
     let wants_to_use_function = chat
         .choices
         .get(0)
