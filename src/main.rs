@@ -1,9 +1,10 @@
 use async_openai::{
     types::{
-        ChatCompletionFunctionsArgs, ChatCompletionRequestFunctionMessageArgs,
-        ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
-        ChatCompletionToolArgs, ChatCompletionToolType, CreateChatCompletionRequestArgs,
-        FinishReason, Role,
+        ChatCompletionFunctionsArgs, ChatCompletionNamedToolChoice,
+        ChatCompletionRequestFunctionMessageArgs, ChatCompletionRequestSystemMessageArgs,
+        ChatCompletionRequestToolMessageArgs, ChatCompletionRequestUserMessageArgs,
+        ChatCompletionToolArgs, ChatCompletionToolChoiceOption, ChatCompletionToolType,
+        CreateChatCompletionRequestArgs, FinishReason, FunctionName, Role,
     },
     Client,
 };
@@ -20,12 +21,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build()?
             .into(),
         ChatCompletionRequestUserMessageArgs::default()
-            // .content("Hello, I am a user, I would like to scrape the internet for information about the Old Man and the Sea")
-            .content("Hello, I am a user, I would like to greet John")
-            // .content("Hello, I am a user, I would like to know the time of day now")
+            // .content("Hello, I am a user, use your predefined functions to scrape the internet for information about the Old Man and the Sea")
+            // .content("Hello, I am a user, I would like to greet John")
+            .content("Hello, I am a user, use your predefined functions to get the time of day now")
             .build()?
             .into(),
     ];
+
     let tools = vec![
         ChatCompletionToolArgs::default()
             .r#type(ChatCompletionToolType::Function)
@@ -72,7 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .function(
                 ChatCompletionFunctionsArgs::default()
                     .name("getTimeOfDay")
-                    .description("Get the time of day.")
+                    .description(
+                        "A function to get the time of day that runs locally on client's PC.",
+                    )
                     .parameters(json!({
                         "type": "object",
                         "properties": {},
@@ -85,38 +89,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let request = CreateChatCompletionRequestArgs::default()
         .max_tokens(512u16)
-        .model("gpt-3.5-turbo-0613")
+        // .model("gpt-4-1106-preview")
+        .model("gpt-3.5-turbo-1106")
         .messages(messages.clone())
         .tools(tools)
+        // .tool_choice(ChatCompletionToolChoiceOption::Named(
+        //     ChatCompletionNamedToolChoice {
+        //         r#type: ChatCompletionToolType::Function,
+        //         function: FunctionName {
+        //             name: "getTimeOfDay".to_string(),
+        //         },
+        //     },
+        // ))
+        // .tool_choice(ChatCompletionToolChoiceOption::None)
+        // .tool_choice(ChatCompletionToolChoiceOption::Auto)
         .build()?;
 
-    // let chat = client.chat().create(request).await?;
-    let chat = match client.chat().create(request).await {
-        Ok(chat) => chat,
-        Err(e) => {
-            eprint!("{e}");
-            return Ok(());
-        }
-    };
-
-    let check  = chat
-    .choices
-    .get(0).clone();
-dbg!(check);
+    let chat = client.chat().create(request).await?;
 
     let wants_to_use_function = chat
         .choices
         .get(0)
-        .map(|choice| choice.finish_reason == Some(FinishReason::ToolCalls))
+        .map(|choice| choice.finish_reason == Some(FinishReason::FunctionCall))
         .unwrap_or(false);
 
+    let mut messages_log = String::new();
+
     if wants_to_use_function {
+
         let tool_calls = chat.choices[0].message.tool_calls.as_ref().unwrap();
 
         for tool_call in tool_calls {
             let function = &tool_call.function;
-            let content_str = function.name.clone();
-println!("function-name: {}", content_str);
             let content = match function.name.as_str() {
                 "helloWorld" => {
                     let argument_obj =
@@ -138,12 +142,17 @@ println!("function-name: {}", content_str);
                 _ => "".to_string(),
             };
             messages.push(
-                ChatCompletionRequestFunctionMessageArgs::default()
-                    .role(Role::Function)
-                    .name(function.name.clone())
+                ChatCompletionRequestToolMessageArgs::default()
+                    .role(Role::Tool)
                     .content(content)
                     .build()?
                     .into(),
+                // ChatCompletionRequestFunctionMessageArgs::default()
+                //     .role(Role::Function)
+                //     .name(function.name.clone())
+                //     .content(content)
+                //     .build()?
+                //     .into(),
             );
         }
     }
@@ -151,8 +160,9 @@ println!("function-name: {}", content_str);
         .chat()
         .create(
             CreateChatCompletionRequestArgs::default()
-                .model("gpt-3.5-turbo-0613")
-                .messages(messages)
+                // .model("gpt-4-1106-preview")
+                .model("gpt-3.5-turbo-1106")
+                .messages(messages.clone())
                 .build()?,
         )
         .await?;
@@ -166,6 +176,35 @@ println!("function-name: {}", content_str);
         .content
         .unwrap_or("no result".to_string());
     println!("{:?}", res);
+
+    messages.push(
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(res)
+            .build()?
+            .into(),
+    );
+
+    let final_res = client
+        .chat()
+        .create(
+            CreateChatCompletionRequestArgs::default()
+                // .model("gpt-4-1106-preview")
+                .model("gpt-3.5-turbo-1106")
+                .messages(messages)
+                .build()?,
+        )
+        .await?;
+
+    let res = final_res
+        .choices
+        .get(0)
+        .unwrap()
+        .message
+        .clone()
+        .content
+        .unwrap_or("no result".to_string());
+    println!("{:?}", res);
+
     Ok(())
 }
 
